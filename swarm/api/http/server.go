@@ -224,7 +224,7 @@ func (s *Server) handleMultipartUpload(req *Request, boundary string, mw *api.Ma
 			if err != nil {
 				return fmt.Errorf("error copying multipart content: %s", err)
 			}
-			if _, err := tmp.Seek(0, os.SEEK_SET); err != nil {
+			if _, err := tmp.Seek(0, io.SeekStart); err != nil {
 				return fmt.Errorf("error copying multipart content: %s", err)
 			}
 			reader = tmp
@@ -522,6 +522,12 @@ func (s *Server) HandleGetList(w http.ResponseWriter, r *Request) {
 // HandleGetFile handles a GET request to bzz://<manifest>/<path> and responds
 // with the content of the file at <path> from the given <manifest>
 func (s *Server) HandleGetFile(w http.ResponseWriter, r *Request) {
+	// ensure the root path has a trailing slash so that relative URLs work
+	if r.uri.Path == "" && !strings.HasSuffix(r.URL.Path, "/") {
+		http.Redirect(w, &r.Request, r.URL.Path+"/", http.StatusMovedPermanently)
+		return
+	}
+
 	key, err := s.api.Resolve(r.uri)
 	if err != nil {
 		s.Error(w, r, fmt.Errorf("error resolving %s: %s", r.uri.Addr, err))

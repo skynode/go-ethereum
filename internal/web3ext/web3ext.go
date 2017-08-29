@@ -208,8 +208,8 @@ web3._extend({
 			params: 1
 		}),
 		new web3._extend.Method({
-			name: 'traceBlockByFile',
-			call: 'debug_traceBlockByFile',
+			name: 'traceBlockFromFile',
+			call: 'debug_traceBlockFromFile',
 			params: 1
 		}),
 		new web3._extend.Method({
@@ -490,6 +490,11 @@ web3._extend({
 		new web3._extend.Method({
 			name: 'ecRecover',
 			call: 'personal_ecRecover',
+			params: 2
+		}),
+		new web3._extend.Method({
+			name: 'openWallet',
+			call: 'personal_openWallet',
 			params: 2
 		}),
 		new web3._extend.Method({

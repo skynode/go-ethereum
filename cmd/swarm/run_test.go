@@ -161,6 +161,7 @@ func newTestNode(t *testing.T, dir string) *testNode {
 	conf := &node.Config{
 		DataDir: dir,
 		IPCPath: "bzzd.ipc",
+		NoUSB:   true,
 	}
 	n, err := node.New(conf)
 	if err != nil {
@@ -194,7 +195,7 @@ func newTestNode(t *testing.T, dir string) *testNode {
 		"--nodiscover",
 		"--datadir", dir,
 		"--ipcpath", conf.IPCPath,
-		"--ethapi", "",
+		"--ens-api", "",
 		"--bzzaccount", account.Address.String(),
 		"--bzznetworkid", "321",
 		"--bzzport", httpPort,

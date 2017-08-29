@@ -33,7 +33,7 @@ import (
 )
 
 func makeReceipt(addr common.Address) *types.Receipt {
-	receipt := types.NewReceipt(nil, new(big.Int))
+	receipt := types.NewReceipt(nil, false, new(big.Int))
 	receipt.Logs = []*types.Log{
 		{Address: addr},
 	}
@@ -49,14 +49,18 @@ func BenchmarkMipmaps(b *testing.B) {
 	defer os.RemoveAll(dir)
 
 	var (
-		db, _   = ethdb.NewLDBDatabase(dir, 0, 0)
-		mux     = new(event.TypeMux)
-		backend = &testBackend{mux, db}
-		key1, _ = crypto.HexToECDSA("b71c71a67e1177ad4e901695e1b4b9ee17ae16c6668d313eac2f96dbcda3f291")
-		addr1   = crypto.PubkeyToAddress(key1.PublicKey)
-		addr2   = common.BytesToAddress([]byte("jeff"))
-		addr3   = common.BytesToAddress([]byte("ethereum"))
-		addr4   = common.BytesToAddress([]byte("random addresses please"))
+		db, _      = ethdb.NewLDBDatabase(dir, 0, 0)
+		mux        = new(event.TypeMux)
+		txFeed     = new(event.Feed)
+		rmLogsFeed = new(event.Feed)
+		logsFeed   = new(event.Feed)
+		chainFeed  = new(event.Feed)
+		backend    = &testBackend{mux, db, txFeed, rmLogsFeed, logsFeed, chainFeed}
+		key1, _    = crypto.HexToECDSA("b71c71a67e1177ad4e901695e1b4b9ee17ae16c6668d313eac2f96dbcda3f291")
+		addr1      = crypto.PubkeyToAddress(key1.PublicKey)
+		addr2      = common.BytesToAddress([]byte("jeff"))
+		addr3      = common.BytesToAddress([]byte("ethereum"))
+		addr4      = common.BytesToAddress([]byte("random addresses please"))
 	)
 	defer db.Close()
 
@@ -81,12 +85,6 @@ func BenchmarkMipmaps(b *testing.B) {
 			receipts = types.Receipts{receipt}
 			gen.AddUncheckedReceipt(receipt)
 
-		}
-
-		// store the receipts
-		err := core.WriteReceipts(db, receipts)
-		if err != nil {
-			b.Fatal(err)
 		}
 		core.WriteMipmapBloom(db, uint64(i+1), receipts)
 	})
@@ -125,11 +123,15 @@ func TestFilters(t *testing.T) {
 	defer os.RemoveAll(dir)
 
 	var (
-		db, _   = ethdb.NewLDBDatabase(dir, 0, 0)
-		mux     = new(event.TypeMux)
-		backend = &testBackend{mux, db}
-		key1, _ = crypto.HexToECDSA("b71c71a67e1177ad4e901695e1b4b9ee17ae16c6668d313eac2f96dbcda3f291")
-		addr    = crypto.PubkeyToAddress(key1.PublicKey)
+		db, _      = ethdb.NewLDBDatabase(dir, 0, 0)
+		mux        = new(event.TypeMux)
+		txFeed     = new(event.Feed)
+		rmLogsFeed = new(event.Feed)
+		logsFeed   = new(event.Feed)
+		chainFeed  = new(event.Feed)
+		backend    = &testBackend{mux, db, txFeed, rmLogsFeed, logsFeed, chainFeed}
+		key1, _    = crypto.HexToECDSA("b71c71a67e1177ad4e901695e1b4b9ee17ae16c6668d313eac2f96dbcda3f291")
+		addr       = crypto.PubkeyToAddress(key1.PublicKey)
 
 		hash1 = common.BytesToHash([]byte("topic1"))
 		hash2 = common.BytesToHash([]byte("topic2"))
@@ -143,7 +145,7 @@ func TestFilters(t *testing.T) {
 		var receipts types.Receipts
 		switch i {
 		case 1:
-			receipt := types.NewReceipt(nil, new(big.Int))
+			receipt := types.NewReceipt(nil, false, new(big.Int))
 			receipt.Logs = []*types.Log{
 				{
 					Address: addr,
@@ -153,7 +155,7 @@ func TestFilters(t *testing.T) {
 			gen.AddUncheckedReceipt(receipt)
 			receipts = types.Receipts{receipt}
 		case 2:
-			receipt := types.NewReceipt(nil, new(big.Int))
+			receipt := types.NewReceipt(nil, false, new(big.Int))
 			receipt.Logs = []*types.Log{
 				{
 					Address: addr,
@@ -163,7 +165,7 @@ func TestFilters(t *testing.T) {
 			gen.AddUncheckedReceipt(receipt)
 			receipts = types.Receipts{receipt}
 		case 998:
-			receipt := types.NewReceipt(nil, new(big.Int))
+			receipt := types.NewReceipt(nil, false, new(big.Int))
 			receipt.Logs = []*types.Log{
 				{
 					Address: addr,
@@ -173,7 +175,7 @@ func TestFilters(t *testing.T) {
 			gen.AddUncheckedReceipt(receipt)
 			receipts = types.Receipts{receipt}
 		case 999:
-			receipt := types.NewReceipt(nil, new(big.Int))
+			receipt := types.NewReceipt(nil, false, new(big.Int))
 			receipt.Logs = []*types.Log{
 				{
 					Address: addr,
@@ -182,12 +184,6 @@ func TestFilters(t *testing.T) {
 			}
 			gen.AddUncheckedReceipt(receipt)
 			receipts = types.Receipts{receipt}
-		}
-
-		// store the receipts
-		err := core.WriteReceipts(db, receipts)
-		if err != nil {
-			t.Fatal(err)
 		}
 		// i is used as block number for the writes but since the i
 		// starts at 0 and block 0 (genesis) is already present increment
