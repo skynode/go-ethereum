@@ -105,7 +105,7 @@ func validateTxPoolInternals(pool *TxPool) error {
 	for addr, txs := range pool.pending {
 		// Find the last transaction
 		var last uint64
-		for nonce, _ := range txs.txs.items {
+		for nonce := range txs.txs.items {
 			if last < nonce {
 				last = nonce
 			}
@@ -1266,7 +1266,7 @@ func TestTransactionPoolRepricingKeepsLocals(t *testing.T) {
 
 // Tests that when the pool reaches its global transaction limit, underpriced
 // transactions are gradually shifted out for more expensive ones and any gapped
-// pending transactions are moved into te queue.
+// pending transactions are moved into the queue.
 //
 // Note, local transactions are never allowed to be dropped.
 func TestTransactionPoolUnderpricing(t *testing.T) {
@@ -1411,10 +1411,10 @@ func TestTransactionReplacement(t *testing.T) {
 	if err := pool.AddRemote(pricedTransaction(0, big.NewInt(100000), big.NewInt(price), key)); err != nil {
 		t.Fatalf("failed to add original proper pending transaction: %v", err)
 	}
-	if err := pool.AddRemote(pricedTransaction(0, big.NewInt(100000), big.NewInt(threshold), key)); err != ErrReplaceUnderpriced {
+	if err := pool.AddRemote(pricedTransaction(0, big.NewInt(100001), big.NewInt(threshold-1), key)); err != ErrReplaceUnderpriced {
 		t.Fatalf("original proper pending transaction replacement error mismatch: have %v, want %v", err, ErrReplaceUnderpriced)
 	}
-	if err := pool.AddRemote(pricedTransaction(0, big.NewInt(100000), big.NewInt(threshold+1), key)); err != nil {
+	if err := pool.AddRemote(pricedTransaction(0, big.NewInt(100000), big.NewInt(threshold), key)); err != nil {
 		t.Fatalf("failed to replace original proper pending transaction: %v", err)
 	}
 	if err := validateEvents(events, 2); err != nil {
@@ -1422,23 +1422,23 @@ func TestTransactionReplacement(t *testing.T) {
 	}
 	// Add queued transactions, ensuring the minimum price bump is enforced for replacement (for ultra low prices too)
 	if err := pool.AddRemote(pricedTransaction(2, big.NewInt(100000), big.NewInt(1), key)); err != nil {
-		t.Fatalf("failed to add original queued transaction: %v", err)
+		t.Fatalf("failed to add original cheap queued transaction: %v", err)
 	}
 	if err := pool.AddRemote(pricedTransaction(2, big.NewInt(100001), big.NewInt(1), key)); err != ErrReplaceUnderpriced {
-		t.Fatalf("original queued transaction replacement error mismatch: have %v, want %v", err, ErrReplaceUnderpriced)
+		t.Fatalf("original cheap queued transaction replacement error mismatch: have %v, want %v", err, ErrReplaceUnderpriced)
 	}
 	if err := pool.AddRemote(pricedTransaction(2, big.NewInt(100000), big.NewInt(2), key)); err != nil {
-		t.Fatalf("failed to replace original queued transaction: %v", err)
+		t.Fatalf("failed to replace original cheap queued transaction: %v", err)
 	}
 
 	if err := pool.AddRemote(pricedTransaction(2, big.NewInt(100000), big.NewInt(price), key)); err != nil {
-		t.Fatalf("failed to add original queued transaction: %v", err)
+		t.Fatalf("failed to add original proper queued transaction: %v", err)
 	}
-	if err := pool.AddRemote(pricedTransaction(2, big.NewInt(100001), big.NewInt(threshold), key)); err != ErrReplaceUnderpriced {
-		t.Fatalf("original queued transaction replacement error mismatch: have %v, want %v", err, ErrReplaceUnderpriced)
+	if err := pool.AddRemote(pricedTransaction(2, big.NewInt(100001), big.NewInt(threshold-1), key)); err != ErrReplaceUnderpriced {
+		t.Fatalf("original proper queued transaction replacement error mismatch: have %v, want %v", err, ErrReplaceUnderpriced)
 	}
-	if err := pool.AddRemote(pricedTransaction(2, big.NewInt(100000), big.NewInt(threshold+1), key)); err != nil {
-		t.Fatalf("failed to replace original queued transaction: %v", err)
+	if err := pool.AddRemote(pricedTransaction(2, big.NewInt(100000), big.NewInt(threshold), key)); err != nil {
+		t.Fatalf("failed to replace original proper queued transaction: %v", err)
 	}
 
 	if err := validateEvents(events, 0); err != nil {
@@ -1561,6 +1561,63 @@ func testTransactionJournaling(t *testing.T, nolocals bool) {
 		t.Fatalf("pool internal state corrupted: %v", err)
 	}
 	pool.Stop()
+}
+
+// TestTransactionStatusCheck tests that the pool can correctly retrieve the
+// pending status of individual transactions.
+func TestTransactionStatusCheck(t *testing.T) {
+	t.Parallel()
+
+	// Create the pool to test the status retrievals with
+	db, _ := ethdb.NewMemDatabase()
+	statedb, _ := state.New(common.Hash{}, state.NewDatabase(db))
+	blockchain := &testBlockChain{statedb, big.NewInt(1000000), new(event.Feed)}
+
+	pool := NewTxPool(testTxPoolConfig, params.TestChainConfig, blockchain)
+	defer pool.Stop()
+
+	// Create the test accounts to check various transaction statuses with
+	keys := make([]*ecdsa.PrivateKey, 3)
+	for i := 0; i < len(keys); i++ {
+		keys[i], _ = crypto.GenerateKey()
+		pool.currentState.AddBalance(crypto.PubkeyToAddress(keys[i].PublicKey), big.NewInt(1000000))
+	}
+	// Generate and queue a batch of transactions, both pending and queued
+	txs := types.Transactions{}
+
+	txs = append(txs, pricedTransaction(0, big.NewInt(100000), big.NewInt(1), keys[0])) // Pending only
+	txs = append(txs, pricedTransaction(0, big.NewInt(100000), big.NewInt(1), keys[1])) // Pending and queued
+	txs = append(txs, pricedTransaction(2, big.NewInt(100000), big.NewInt(1), keys[1]))
+	txs = append(txs, pricedTransaction(2, big.NewInt(100000), big.NewInt(1), keys[2])) // Queued only
+
+	// Import the transaction and ensure they are correctly added
+	pool.AddRemotes(txs)
+
+	pending, queued := pool.Stats()
+	if pending != 2 {
+		t.Fatalf("pending transactions mismatched: have %d, want %d", pending, 2)
+	}
+	if queued != 2 {
+		t.Fatalf("queued transactions mismatched: have %d, want %d", queued, 2)
+	}
+	if err := validateTxPoolInternals(pool); err != nil {
+		t.Fatalf("pool internal state corrupted: %v", err)
+	}
+	// Retrieve the status of each transaction and validate them
+	hashes := make([]common.Hash, len(txs))
+	for i, tx := range txs {
+		hashes[i] = tx.Hash()
+	}
+	hashes = append(hashes, common.Hash{})
+
+	statuses := pool.Status(hashes)
+	expect := []TxStatus{TxStatusPending, TxStatusPending, TxStatusQueued, TxStatusQueued, TxStatusUnknown}
+
+	for i := 0; i < len(statuses); i++ {
+		if statuses[i] != expect[i] {
+			t.Errorf("transaction %d: status mismatch: have %v, want %v", i, statuses[i], expect[i])
+		}
+	}
 }
 
 // Benchmarks the speed of validating the contents of the pending queue of the
