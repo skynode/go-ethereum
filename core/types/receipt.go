@@ -20,6 +20,7 @@ import (
 	"bytes"
 	"fmt"
 	"io"
+	"unsafe"
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/hexutil"
@@ -35,17 +36,17 @@ var (
 
 const (
 	// ReceiptStatusFailed is the status code of a transaction if execution failed.
-	ReceiptStatusFailed = uint(0)
+	ReceiptStatusFailed = uint64(0)
 
 	// ReceiptStatusSuccessful is the status code of a transaction if execution succeeded.
-	ReceiptStatusSuccessful = uint(1)
+	ReceiptStatusSuccessful = uint64(1)
 )
 
 // Receipt represents the results of a transaction.
 type Receipt struct {
 	// Consensus fields
 	PostState         []byte `json:"root"`
-	Status            uint   `json:"status"`
+	Status            uint64 `json:"status"`
 	CumulativeGasUsed uint64 `json:"cumulativeGasUsed" gencodec:"required"`
 	Bloom             Bloom  `json:"logsBloom"         gencodec:"required"`
 	Logs              []*Log `json:"logs"              gencodec:"required"`
@@ -58,7 +59,7 @@ type Receipt struct {
 
 type receiptMarshaling struct {
 	PostState         hexutil.Bytes
-	Status            hexutil.Uint
+	Status            hexutil.Uint64
 	CumulativeGasUsed hexutil.Uint64
 	GasUsed           hexutil.Uint64
 }
@@ -136,12 +137,16 @@ func (r *Receipt) statusEncoding() []byte {
 	return r.PostState
 }
 
-// String implements the Stringer interface.
-func (r *Receipt) String() string {
-	if len(r.PostState) == 0 {
-		return fmt.Sprintf("receipt{status=%d cgas=%v bloom=%x logs=%v}", r.Status, r.CumulativeGasUsed, r.Bloom, r.Logs)
+// Size returns the approximate memory used by all internal contents. It is used
+// to approximate and limit the memory consumption of various caches.
+func (r *Receipt) Size() common.StorageSize {
+	size := common.StorageSize(unsafe.Sizeof(*r)) + common.StorageSize(len(r.PostState))
+
+	size += common.StorageSize(len(r.Logs)) * common.StorageSize(unsafe.Sizeof(Log{}))
+	for _, log := range r.Logs {
+		size += common.StorageSize(len(log.Topics)*common.HashLength + len(log.Data))
 	}
-	return fmt.Sprintf("receipt{med=%x cgas=%v bloom=%x logs=%v}", r.PostState, r.CumulativeGasUsed, r.Bloom, r.Logs)
+	return size
 }
 
 // ReceiptForStorage is a wrapper around a Receipt that flattens and parses the
